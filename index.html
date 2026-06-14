@@ -1,0 +1,999 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>AI 智能提词器</title>
+<style>
+  :root {
+    --accent: #f5c518;
+    --bg: #0e0f12;
+    --panel: #1a1c22;
+    --text: #e8e8ea;
+    --muted: #8a8d96;
+    --prompter-font-size: 56px;
+    --prompter-line-height: 1.7;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;
+    background: var(--bg);
+    color: var(--text);
+    min-height: 100vh;
+  }
+
+  /* ===================== 编辑界面 ===================== */
+  #editor-screen {
+    max-width: 860px;
+    margin: 0 auto;
+    padding: 48px 24px 80px;
+  }
+  .logo { display: flex; align-items: center; gap: 12px; margin-bottom: 8px; }
+  .logo .dot {
+    width: 14px; height: 14px; border-radius: 50%;
+    background: var(--accent);
+    box-shadow: 0 0 14px var(--accent);
+  }
+  h1 { font-size: 26px; font-weight: 700; letter-spacing: 1px; }
+  .subtitle { color: var(--muted); margin: 6px 0 28px; font-size: 14px; }
+
+  #script-input {
+    width: 100%;
+    min-height: 320px;
+    background: var(--panel);
+    color: var(--text);
+    border: 1px solid #2c2f38;
+    border-radius: 12px;
+    padding: 20px;
+    font-size: 17px;
+    line-height: 1.8;
+    resize: vertical;
+    outline: none;
+    transition: border-color .2s;
+  }
+  #script-input:focus { border-color: var(--accent); }
+
+  .editor-toolbar {
+    display: flex; flex-wrap: wrap; gap: 16px; align-items: center;
+    margin-top: 20px;
+  }
+  .field { display: flex; align-items: center; gap: 8px; font-size: 14px; color: var(--muted); }
+  select {
+    background: var(--panel); color: var(--text);
+    border: 1px solid #2c2f38; border-radius: 8px;
+    padding: 8px 10px; font-size: 14px; outline: none; cursor: pointer;
+  }
+  #play-btn {
+    margin-left: auto;
+    display: flex; align-items: center; gap: 10px;
+    background: var(--accent); color: #111;
+    border: none; border-radius: 999px;
+    padding: 14px 34px;
+    font-size: 17px; font-weight: 700;
+    cursor: pointer;
+    transition: transform .15s, box-shadow .15s;
+  }
+  #play-btn:hover { transform: scale(1.04); box-shadow: 0 0 24px rgba(245,197,24,.45); }
+  #play-btn svg { width: 18px; height: 18px; }
+
+  .hint {
+    margin-top: 26px; padding: 14px 18px;
+    background: rgba(245,197,24,.07);
+    border: 1px solid rgba(245,197,24,.25);
+    border-radius: 10px;
+    font-size: 13px; color: #cdb15e; line-height: 1.7;
+  }
+  .hint b { color: var(--accent); }
+  #compat-warning {
+    display: none;
+    margin-top: 14px; padding: 12px 18px;
+    background: rgba(255,80,80,.08);
+    border: 1px solid rgba(255,80,80,.35);
+    border-radius: 10px;
+    font-size: 13px; color: #ff9d9d; line-height: 1.7;
+  }
+
+  /* ===================== 提词界面 ===================== */
+  #prompter-screen {
+    display: none;
+    position: fixed; inset: 0;
+    background: #000;
+    z-index: 100;
+  }
+  #prompter-screen.active { display: block; }
+
+  #scroll-container {
+    position: absolute; inset: 0;
+    overflow-y: scroll;
+    scrollbar-width: none;
+  }
+  #scroll-container::-webkit-scrollbar { display: none; }
+
+  #prompter-text {
+    padding: 50vh 8vw;
+    font-size: var(--prompter-font-size);
+    line-height: var(--prompter-line-height);
+    font-weight: 600;
+    color: #fff;
+    word-break: break-word;
+  }
+  #prompter-text.mirrored { transform: scaleX(-1); }
+
+  #prompter-text .tk { transition: color .25s, opacity .25s; }
+  #prompter-text .tk.read { color: var(--accent); opacity: .85; }
+
+  /* 中线指示 */
+  #center-guide {
+    position: absolute; left: 0; right: 0; top: 50%;
+    pointer-events: none;
+    border-top: 1px solid rgba(255,255,255,.18);
+  }
+  #center-guide::before {
+    content: "";
+    position: absolute; left: 14px; top: -9px;
+    border: 9px solid transparent;
+    border-left: 14px solid var(--accent);
+  }
+
+  /* 顶部控制栏 */
+  #controls {
+    position: absolute; top: 0; left: 0; right: 0;
+    display: flex; flex-wrap: wrap; align-items: center; gap: 14px;
+    padding: 14px 22px;
+    background: linear-gradient(to bottom, rgba(0,0,0,.92), rgba(0,0,0,.75) 70%, transparent);
+    z-index: 10;
+    transition: opacity .4s, transform .4s;
+  }
+  #controls.hidden { opacity: 0; transform: translateY(-12px); pointer-events: none; }
+
+  .ctrl-group {
+    display: flex; align-items: center; gap: 8px;
+    background: rgba(255,255,255,.07);
+    border-radius: 10px;
+    padding: 7px 12px;
+    font-size: 13px; color: #ccc;
+    user-select: none;
+  }
+  .ctrl-group label { white-space: nowrap; }
+  input[type="range"] { accent-color: var(--accent); cursor: pointer; }
+  .ctrl-btn {
+    background: rgba(255,255,255,.1); color: #eee;
+    border: none; border-radius: 8px;
+    padding: 8px 14px; font-size: 13px;
+    cursor: pointer; white-space: nowrap;
+    transition: background .15s;
+  }
+  .ctrl-btn:hover { background: rgba(255,255,255,.22); }
+  .ctrl-btn.active { background: var(--accent); color: #111; font-weight: 700; }
+  .ctrl-btn.danger:hover { background: rgba(255,70,70,.8); }
+
+  /* 麦克风状态 */
+  #mic-status {
+    position: absolute; bottom: 22px; left: 50%; transform: translateX(-50%);
+    display: flex; align-items: center; gap: 9px;
+    background: rgba(0,0,0,.65);
+    border: 1px solid rgba(255,255,255,.15);
+    border-radius: 999px;
+    padding: 8px 18px;
+    font-size: 13px; color: #bbb;
+    z-index: 10;
+    max-width: 92vw;
+  }
+  #mic-dot { width: 10px; height: 10px; border-radius: 50%; background: #555; flex: none; }
+  #mic-dot.listening { background: #2ecc71; animation: pulse 1.2s infinite; }
+  #mic-dot.error { background: #e74c3c; }
+  @keyframes pulse {
+    0%,100% { box-shadow: 0 0 0 0 rgba(46,204,113,.6); }
+    50% { box-shadow: 0 0 0 7px rgba(46,204,113,0); }
+  }
+  #engine-tag {
+    flex: none;
+    background: rgba(245,197,24,.15); color: var(--accent);
+    border-radius: 6px; padding: 2px 8px; font-size: 12px;
+  }
+  #interim-preview {
+    max-width: 36vw;
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+    color: #777; font-style: italic;
+  }
+
+  @media (max-width: 640px) {
+    :root { --prompter-font-size: 36px; }
+    #prompter-text { padding: 50vh 6vw; }
+    #interim-preview { display: none; }
+  }
+</style>
+</head>
+<body>
+
+<!-- ===================== 编辑界面 ===================== -->
+<div id="editor-screen">
+  <div class="logo"><div class="dot"></div><h1>AI 智能提词器</h1></div>
+  <p class="subtitle">输入文稿 → 点击播放 → 开口朗读,文字自动跟随你的语音高亮并滚动 · 双识别引擎,中国大陆自动切换</p>
+
+  <textarea id="script-input" placeholder="在这里粘贴或输入你的演讲稿、口播稿……">欢迎使用 AI 智能提词器。点击播放按钮后,页面会自动进入全屏模式,背景变成黑色,文字以大号字体显示。
+
+当你开始朗读时,系统会通过麦克风实时识别你的语音,已经读过的文字会自动变成黄色,页面会平滑地向下滚动,始终让已读和未读内容的分界线保持在屏幕中间。
+
+本提词器内置双识别引擎:海外用户使用浏览器自带的语音识别,中国大陆用户自动切换到讯飞语音识别,无需任何手动设置。祝你录制顺利!</textarea>
+
+  <div class="editor-toolbar">
+    <div class="field">
+      <label for="lang-select">识别语言</label>
+      <select id="lang-select">
+        <option value="zh-CN" selected>中文(普通话)</option>
+        <option value="zh-TW">中文(台湾)</option>
+        <option value="zh-HK">粤语</option>
+        <option value="en-US">English (US)</option>
+        <option value="en-GB">English (UK)</option>
+        <option value="ja-JP">日本語</option>
+      </select>
+    </div>
+    <div class="field">
+      <label for="engine-select">识别引擎</label>
+      <select id="engine-select">
+        <option value="auto" selected>自动(推荐)</option>
+        <option value="webspeech">浏览器内置</option>
+        <option value="xfyun">讯飞(中国大陆)</option>
+      </select>
+    </div>
+    <div class="field">
+      <label for="mode-select">滚动模式</label>
+      <select id="mode-select">
+        <option value="voice" selected>语音跟随(AI)</option>
+        <option value="auto">定速自动滚动</option>
+      </select>
+    </div>
+    <button id="play-btn">
+      <svg viewBox="0 0 24 24" fill="currentColor"><path d="M8 5v14l11-7z"/></svg>
+      开始提词
+    </button>
+  </div>
+
+  <div class="hint">
+    <b>使用提示:</b>推荐 <b>Chrome / Edge</b> 浏览器,需联网并授权麦克风。引擎选"自动"时:大陆网络环境自动使用讯飞识别,其他地区使用浏览器内置识别;浏览器识别中途失败也会自动切换到讯飞,无感衔接。
+  </div>
+  <div id="compat-warning"></div>
+</div>
+
+<!-- ===================== 提词界面 ===================== -->
+<div id="prompter-screen">
+  <div id="scroll-container">
+    <div id="prompter-text"></div>
+  </div>
+  <div id="center-guide"></div>
+
+  <div id="controls">
+    <div class="ctrl-group">
+      <label>字号</label>
+      <button class="ctrl-btn" id="font-minus" style="padding:4px 10px">−</button>
+      <input type="range" id="font-slider" min="24" max="140" step="2" value="56">
+      <button class="ctrl-btn" id="font-plus" style="padding:4px 10px">+</button>
+      <span id="font-val" style="min-width:44px;text-align:center">56px</span>
+    </div>
+    <div class="ctrl-group" id="speed-group" style="display:none">
+      <label>速度</label>
+      <input type="range" id="speed-slider" min="10" max="200" step="5" value="60">
+    </div>
+    <button class="ctrl-btn" id="pause-btn">⏸ 暂停</button>
+    <button class="ctrl-btn" id="mode-btn">🎙 语音跟随</button>
+    <button class="ctrl-btn" id="engine-btn">引擎: -</button>
+    <button class="ctrl-btn" id="restart-btn">⟲ 重新开始</button>
+    <button class="ctrl-btn" id="mirror-btn">🪞 镜像</button>
+    <button class="ctrl-btn danger" id="exit-btn">✕ 退出 (ESC)</button>
+  </div>
+
+  <div id="mic-status">
+    <div id="mic-dot"></div>
+    <span id="engine-tag">-</span>
+    <span id="mic-label">未启动</span>
+    <span id="interim-preview"></span>
+  </div>
+</div>
+
+<script>
+(function () {
+  "use strict";
+
+  // ════════════════════════════════════════════════════════════
+  // 配置:讯飞鉴权服务地址(Cloudflare Worker,见 worker.js)
+  // 部署 Worker 后把地址填到下面的 DEFAULT_AUTH,例如:
+  //   const DEFAULT_AUTH = "https://tici-auth.你的子域.workers.dev";
+  // 留空 = 禁用讯飞引擎(仅浏览器内置识别可用)。
+  // 也可通过 URL 参数临时指定:index.html?xfauth=https://...
+  // ════════════════════════════════════════════════════════════
+  const DEFAULT_AUTH = "";
+  const XFYUN_AUTH_ENDPOINT =
+    new URLSearchParams(location.search).get("xfauth") || DEFAULT_AUTH;
+
+  // ---------- DOM ----------
+  const editorScreen = document.getElementById("editor-screen");
+  const prompterScreen = document.getElementById("prompter-screen");
+  const scriptInput = document.getElementById("script-input");
+  const langSelect = document.getElementById("lang-select");
+  const engineSelect = document.getElementById("engine-select");
+  const modeSelect = document.getElementById("mode-select");
+  const playBtn = document.getElementById("play-btn");
+  const compatWarning = document.getElementById("compat-warning");
+  const scrollContainer = document.getElementById("scroll-container");
+  const prompterText = document.getElementById("prompter-text");
+  const controls = document.getElementById("controls");
+  const fontSlider = document.getElementById("font-slider");
+  const fontVal = document.getElementById("font-val");
+  const fontMinus = document.getElementById("font-minus");
+  const fontPlus = document.getElementById("font-plus");
+  const speedGroup = document.getElementById("speed-group");
+  const speedSlider = document.getElementById("speed-slider");
+  const pauseBtn = document.getElementById("pause-btn");
+  const modeBtn = document.getElementById("mode-btn");
+  const engineBtn = document.getElementById("engine-btn");
+  const restartBtn = document.getElementById("restart-btn");
+  const mirrorBtn = document.getElementById("mirror-btn");
+  const exitBtn = document.getElementById("exit-btn");
+  const micDot = document.getElementById("mic-dot");
+  const micLabel = document.getElementById("mic-label");
+  const engineTag = document.getElementById("engine-tag");
+  const interimPreview = document.getElementById("interim-preview");
+
+  // ---------- 能力检测 ----------
+  const SpeechRec = window.SpeechRecognition || window.webkitSpeechRecognition;
+  const webspeechSupported = !!SpeechRec;
+  const xfyunConfigured = !!XFYUN_AUTH_ENDPOINT;
+
+  if (!webspeechSupported && !xfyunConfigured) {
+    compatWarning.style.display = "block";
+    compatWarning.textContent = "⚠️ 当前浏览器不支持语音识别,且未配置讯飞引擎。“语音跟随”不可用,已切换为定速滚动。建议改用 Chrome / Edge。";
+    modeSelect.value = "auto";
+    modeSelect.querySelector('[value="voice"]').disabled = true;
+  } else if (!webspeechSupported) {
+    compatWarning.style.display = "block";
+    compatWarning.textContent = "ℹ️ 当前浏览器不支持内置语音识别,将全程使用讯飞引擎。";
+    engineSelect.value = "xfyun";
+    engineSelect.querySelector('[value="webspeech"]').disabled = true;
+    engineSelect.querySelector('[value="auto"]').disabled = true;
+  }
+  if (!xfyunConfigured) {
+    engineSelect.querySelector('[value="xfyun"]').disabled = true;
+    engineSelect.querySelector('[value="xfyun"]').textContent = "讯飞(未配置)";
+  }
+
+  // ---------- 状态 ----------
+  let playing = false;
+  let paused = false;
+  let mode = "voice";           // voice | auto(滚动模式)
+  let engine = "webspeech";     // webspeech | xfyun(识别引擎)
+  let engineAuto = true;        // 是否允许自动回退切换
+  let geoCountry = null;        // Worker 返回的访问者国家代码(缓存)
+
+  // Web Speech
+  let recognition = null;
+  let recActive = false;
+  let interimProcessed = 0;
+  let wsGotResult = false;      // 本次播放中浏览器识别是否拿到过结果
+  let wsSilentEnds = 0;         // 无结果的连续会话结束次数(疑似不可用)
+  let wsStartTime = 0;
+
+  // 讯飞
+  let xf = null;                // {stream, ctx, src, proc, ws, appid, firstSent, segs, processed, sessionTimer, stopped}
+
+  // 文本 token
+  let allSpans = [];
+  let matchUnits = [];
+  let cursor = 0;
+  const LOOKAHEAD = 22;
+
+  // 滚动
+  let targetScroll = 0;
+  let rafId = null;
+  let intervalId = null;
+  let lastTs = 0;
+
+  // 未捕获错误直接显示,方便定位
+  window.addEventListener("error", (e) => {
+    if (micLabel) micLabel.textContent = "⚠️ 页面错误: " + (e.message || "未知");
+  });
+
+  // ---------- 页面加载即预取地理位置(播放时零等待) ----------
+  let geoPrefetch = null;
+  function prefetchGeo() {
+    if (!xfyunConfigured) return Promise.resolve("");
+    if (!geoPrefetch) {
+      geoPrefetch = fetch(XFYUN_AUTH_ENDPOINT)
+        .then(r => r.json())
+        .then(j => { geoCountry = j.country || ""; return geoCountry; })
+        .catch(() => { geoCountry = ""; return ""; });
+    }
+    return geoPrefetch;
+  }
+  prefetchGeo();
+
+  // ---------- 分词 ----------
+  const TOKEN_RE = /([㐀-䶿一-鿿豈-﫿])|([A-Za-z0-9][A-Za-z0-9''\-]*)|(\n)|(\s+)|([^\s])/g;
+  function normalize(s) { return s.toLowerCase(); }
+
+  function tokenizeUnits(text) {
+    const units = [];
+    let m;
+    TOKEN_RE.lastIndex = 0;
+    while ((m = TOKEN_RE.exec(text)) !== null) {
+      if (m[1]) units.push(normalize(m[1]));
+      else if (m[2]) units.push(normalize(m[2]));
+    }
+    return units;
+  }
+
+  function buildPrompterContent(text) {
+    prompterText.innerHTML = "";
+    allSpans = [];
+    matchUnits = [];
+    cursor = 0;
+    const frag = document.createDocumentFragment();
+    let m;
+    TOKEN_RE.lastIndex = 0;
+    while ((m = TOKEN_RE.exec(text)) !== null) {
+      if (m[3]) { frag.appendChild(document.createElement("br")); continue; }
+      const span = document.createElement("span");
+      span.className = "tk";
+      span.textContent = m[0];
+      frag.appendChild(span);
+      const spanIdx = allSpans.length;
+      allSpans.push(span);
+      if (m[1] || m[2]) matchUnits.push({ norm: normalize(m[1] || m[2]), spanIdx });
+    }
+    prompterText.appendChild(frag);
+  }
+
+  // ---------- 匹配引擎(与识别引擎无关) ----------
+  function feedUnits(units) {
+    let advanced = false;
+    for (const u of units) {
+      const limit = Math.min(cursor + LOOKAHEAD, matchUnits.length);
+      for (let j = cursor; j < limit; j++) {
+        if (matchUnits[j].norm === u) {
+          for (let k = cursor; k <= j; k++) markRead(k);
+          cursor = j + 1;
+          advanced = true;
+          break;
+        }
+      }
+      if (cursor >= matchUnits.length) break;
+    }
+    if (advanced) {
+      updateScrollTarget();
+      if (cursor >= matchUnits.length) micLabel.textContent = "✅ 已读完全文";
+    }
+  }
+
+  function markRead(unitIdx) {
+    const { spanIdx } = matchUnits[unitIdx];
+    allSpans[spanIdx].classList.add("read");
+    const nextUnitSpan = unitIdx + 1 < matchUnits.length ? matchUnits[unitIdx + 1].spanIdx : allSpans.length;
+    for (let s = spanIdx + 1; s < nextUnitSpan; s++) allSpans[s].classList.add("read");
+  }
+
+  // ---------- 滚动 ----------
+  function updateScrollTarget() {
+    let anchor;
+    if (cursor < matchUnits.length) anchor = allSpans[matchUnits[cursor].spanIdx];
+    else anchor = allSpans[allSpans.length - 1];
+    if (!anchor) return;
+    const y = anchor.offsetTop + anchor.offsetHeight / 2 - scrollContainer.clientHeight / 2;
+    targetScroll = Math.max(0, y);
+  }
+
+  function step() {
+    const now = performance.now();
+    let dt = lastTs ? (now - lastTs) / 1000 : 0;
+    lastTs = now;
+    if (dt <= 0) return;
+    if (dt > 0.25) dt = 0.25;
+    if (paused) return;
+
+    if (mode === "auto") {
+      targetScroll += Number(speedSlider.value) * dt;
+      const maxScroll = Math.max(0, scrollContainer.scrollHeight - scrollContainer.clientHeight);
+      if (targetScroll > maxScroll) targetScroll = maxScroll;
+      scrollContainer.scrollTop = targetScroll;
+      markReadAboveCenter();
+    } else {
+      const cur = scrollContainer.scrollTop;
+      const diff = targetScroll - cur;
+      if (Math.abs(diff) > 0.5) scrollContainer.scrollTop = cur + diff * Math.min(1, dt * 4.5);
+    }
+  }
+
+  function animLoop() {
+    rafId = requestAnimationFrame(animLoop);
+    step();
+  }
+
+  function markReadAboveCenter() {
+    const centerY = scrollContainer.scrollTop + scrollContainer.clientHeight / 2;
+    while (cursor < matchUnits.length) {
+      const span = allSpans[matchUnits[cursor].spanIdx];
+      if (span.offsetTop + span.offsetHeight / 2 < centerY) { markRead(cursor); cursor++; }
+      else break;
+    }
+  }
+
+  // ════════════════════════════════════════════════════════════
+  //  识别引擎抽象层
+  // ════════════════════════════════════════════════════════════
+  function setEngineUI() {
+    const name = engine === "xfyun" ? "讯飞" : "浏览器";
+    engineTag.textContent = name;
+    engineBtn.textContent = "引擎: " + name + (engineAuto ? " (自动)" : "");
+  }
+
+  function setListening(on) {
+    micDot.classList.remove("error");
+    micDot.classList.toggle("listening", on);
+  }
+
+  async function startEngine() {
+    setEngineUI();
+    if (engine === "xfyun") await startXfyun();
+    else startWebSpeech();
+  }
+
+  function stopEngine() {
+    stopWebSpeech();
+    stopXfyun();
+    setListening(false);
+    interimPreview.textContent = "";
+  }
+
+  // 浏览器识别疑似不可用(大陆环境的典型表现)→ 自动切到讯飞
+  function fallbackToXfyun(reason) {
+    if (!engineAuto || !xfyunConfigured || engine === "xfyun" || !playing || mode !== "voice") return false;
+    stopWebSpeech();
+    engine = "xfyun";
+    micLabel.textContent = "浏览器识别不可用(" + reason + "),已自动切换到讯飞引擎";
+    startXfyun();
+    setEngineUI();
+    return true;
+  }
+
+  // ---------- 引擎 1:浏览器内置 (Web Speech API) ----------
+  function startWebSpeech() {
+    if (!webspeechSupported) { fallbackToXfyun("浏览器不支持"); return; }
+    if (recognition) return;
+    recognition = new SpeechRec();
+    recognition.lang = langSelect.value;
+    recognition.continuous = true;
+    recognition.interimResults = true;
+    recognition.maxAlternatives = 1;
+
+    recognition.onstart = () => {
+      recActive = true;
+      wsStartTime = Date.now();
+      setListening(true);
+      micLabel.textContent = "正在聆听… 请开始朗读";
+    };
+
+    recognition.onresult = (e) => {
+      wsGotResult = true;
+      wsSilentEnds = 0;
+      let interim = "";
+      for (let i = e.resultIndex; i < e.results.length; i++) {
+        const r = e.results[i];
+        if (r.isFinal) {
+          const units = tokenizeUnits(r[0].transcript);
+          feedUnits(units.slice(Math.min(interimProcessed, units.length)));
+          interimProcessed = 0;
+          interimPreview.textContent = "";
+        } else {
+          interim += r[0].transcript;
+        }
+      }
+      if (interim) {
+        interimPreview.textContent = interim.slice(-30);
+        const units = tokenizeUnits(interim);
+        if (units.length > interimProcessed) {
+          feedUnits(units.slice(interimProcessed));
+          interimProcessed = units.length;
+        }
+      }
+    };
+
+    recognition.onerror = (e) => {
+      if (e.error === "network" || e.error === "service-not-allowed") {
+        if (fallbackToXfyun(e.error)) return;
+        micDot.classList.add("error");
+        micLabel.textContent = "识别服务无法连接(" + e.error + "),可手动切换引擎或滚动模式";
+      } else if (e.error === "not-allowed") {
+        setListening(false);
+        micDot.classList.add("error");
+        micLabel.textContent = "麦克风权限被拒绝,请在浏览器设置中允许";
+        recActive = false;
+      } else if (e.error !== "no-speech" && e.error !== "aborted") {
+        micLabel.textContent = "识别异常: " + e.error + "(自动重试中)";
+      }
+    };
+
+    recognition.onend = () => {
+      interimProcessed = 0;
+      if (!playing || paused || mode !== "voice" || engine !== "webspeech" || !recActive) return;
+      // 启动后从未拿到结果且很快结束 → 连续 2 次判定为不可用,切讯飞
+      if (!wsGotResult && Date.now() - wsStartTime < 10000) {
+        wsSilentEnds++;
+        if (wsSilentEnds >= 2 && fallbackToXfyun("无响应")) return;
+      }
+      try { recognition.start(); } catch (_) {}
+    };
+
+    try { recognition.start(); } catch (_) {}
+  }
+
+  function stopWebSpeech() {
+    recActive = false;
+    if (recognition) {
+      recognition.onend = null;
+      try { recognition.stop(); } catch (_) {}
+      recognition = null;
+    }
+  }
+
+  // ---------- 引擎 2:讯飞实时听写 (IAT WebSocket) ----------
+  function xfLangParams() {
+    const v = langSelect.value;
+    if (v.indexOf("en") === 0) return { language: "en_us", accent: "mandarin" };
+    if (v === "zh-HK") return { language: "zh_cn", accent: "cantonese" };
+    return { language: "zh_cn", accent: "mandarin" }; // 其余语言 IAT 不支持,回落普通话
+  }
+
+  async function startXfyun() {
+    if (xf) return;
+    if (!xfyunConfigured) { micLabel.textContent = "未配置讯飞引擎(见 index.html 顶部说明)"; return; }
+    xf = { stopped: false, firstSent: false, segs: {}, processed: 0, ws: null };
+    micLabel.textContent = "正在连接讯飞识别服务…";
+    try {
+      // 1. 麦克风 + 音频管线
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: { channelCount: 1, echoCancellation: true } });
+      if (!xf || xf.stopped) { stream.getTracks().forEach(t => t.stop()); return; }
+      xf.stream = stream;
+      const Ctx = window.AudioContext || window.webkitAudioContext;
+      let ctx;
+      try { ctx = new Ctx({ sampleRate: 16000 }); } catch (_) { ctx = new Ctx(); }
+      xf.ctx = ctx;
+      if (ctx.state === "suspended") await ctx.resume();
+      xf.src = ctx.createMediaStreamSource(stream);
+      xf.proc = ctx.createScriptProcessor(4096, 1, 1);
+      xf.proc.onaudioprocess = (e) => {
+        if (!xf || xf.stopped || paused) return;
+        if (xf.ws && xf.ws.readyState === 1) sendXfAudio(e.inputBuffer.getChannelData(0), ctx.sampleRate);
+      };
+      xf.src.connect(xf.proc);
+      xf.proc.connect(ctx.destination);
+      // 2. 识别会话
+      await openXfSession();
+    } catch (err) {
+      micDot.classList.add("error");
+      micLabel.textContent = "讯飞引擎启动失败: " + (err && err.message ? err.message : err);
+      stopXfyun();
+    }
+  }
+
+  async function openXfSession() {
+    if (!xf || xf.stopped) return;
+    // 向 Worker 取签名 URL(密钥保存在服务端,前端拿到的是限时鉴权链接)
+    const resp = await fetch(XFYUN_AUTH_ENDPOINT, { method: "GET" });
+    if (!resp.ok) throw new Error("鉴权服务返回 " + resp.status);
+    const auth = await resp.json();
+    if (!auth.url || !auth.appid) throw new Error("鉴权服务响应缺少 url/appid");
+    if (auth.country) geoCountry = auth.country;
+    if (!xf || xf.stopped) return;
+
+    xf.appid = auth.appid;
+    xf.firstSent = false;
+    xf.segs = {};
+    xf.processed = 0;
+
+    const ws = new WebSocket(auth.url);
+    xf.ws = ws;
+
+    ws.onopen = () => {
+      if (!xf || xf.stopped) { ws.close(); return; }
+      setListening(true);
+      micLabel.textContent = "正在聆听(讯飞)… 请开始朗读";
+      // 单会话上限 60s:55s 时主动收尾,由 onclose 无缝续连
+      clearTimeout(xf.sessionTimer);
+      xf.sessionTimer = setTimeout(() => {
+        if (xf && xf.ws === ws && ws.readyState === 1) {
+          try { ws.send(JSON.stringify({ data: { status: 2, format: "audio/L16;rate=16000", encoding: "raw", audio: "" } })); } catch (_) {}
+        }
+      }, 55000);
+    };
+
+    ws.onmessage = (ev) => {
+      let msg;
+      try { msg = JSON.parse(ev.data); } catch (_) { return; }
+      if (msg.code !== 0) {
+        micDot.classList.add("error");
+        micLabel.textContent = "讯飞识别错误 " + msg.code + ": " + (msg.message || "");
+        return;
+      }
+      if (msg.data && msg.data.result) handleXfResult(msg.data.result);
+      if (msg.data && msg.data.status === 2) { try { ws.close(); } catch (_) {} }
+    };
+
+    ws.onerror = () => {
+      if (xf && !xf.stopped) micLabel.textContent = "讯飞连接异常,正在重连…";
+    };
+
+    ws.onclose = () => {
+      if (xf) clearTimeout(xf.sessionTimer);
+      // 播放中且未主动停止 → 无缝开新会话
+      if (xf && !xf.stopped && playing && mode === "voice" && engine === "xfyun") {
+        openXfSession().catch(err => {
+          micDot.classList.add("error");
+          micLabel.textContent = "讯飞重连失败: " + (err && err.message ? err.message : err);
+        });
+      }
+    };
+  }
+
+  function handleXfResult(result) {
+    let txt = "";
+    (result.ws || []).forEach(w => (w.cw || []).forEach(c => { txt += c.w; }));
+    // wpgs 动态修正:rpl 替换指定范围的旧分句
+    if (result.pgs === "rpl" && Array.isArray(result.rg)) {
+      for (let i = result.rg[0]; i <= result.rg[1]; i++) delete xf.segs[i];
+    }
+    xf.segs[result.sn] = txt;
+    const full = Object.keys(xf.segs).map(Number).sort((a, b) => a - b).map(k => xf.segs[k]).join("");
+    interimPreview.textContent = full.slice(-30);
+    const units = tokenizeUnits(full);
+    if (units.length > xf.processed) {
+      feedUnits(units.slice(xf.processed));
+      xf.processed = units.length;
+    }
+  }
+
+  function sendXfAudio(float32, sampleRate) {
+    // 重采样到 16k + Float32 → Int16 PCM → base64
+    let data = float32;
+    if (sampleRate !== 16000) {
+      const ratio = sampleRate / 16000;
+      const len = Math.floor(float32.length / ratio);
+      const out = new Float32Array(len);
+      for (let i = 0; i < len; i++) out[i] = float32[Math.floor(i * ratio)];
+      data = out;
+    }
+    const i16 = new Int16Array(data.length);
+    for (let i = 0; i < data.length; i++) {
+      const s = Math.max(-1, Math.min(1, data[i]));
+      i16[i] = s < 0 ? s * 0x8000 : s * 0x7fff;
+    }
+    const u8 = new Uint8Array(i16.buffer);
+    let bin = "";
+    for (let i = 0; i < u8.length; i += 8192) bin += String.fromCharCode.apply(null, u8.subarray(i, i + 8192));
+    const b64 = btoa(bin);
+
+    const dataPart = { status: xf.firstSent ? 1 : 0, format: "audio/L16;rate=16000", encoding: "raw", audio: b64 };
+    let frame;
+    if (!xf.firstSent) {
+      const lp = xfLangParams();
+      frame = {
+        common: { app_id: xf.appid },
+        business: { language: lp.language, domain: "iat", accent: lp.accent, dwa: "wpgs", vad_eos: 10000, ptt: 1 },
+        data: dataPart
+      };
+      xf.firstSent = true;
+    } else {
+      frame = { data: dataPart };
+    }
+    try { xf.ws.send(JSON.stringify(frame)); } catch (_) {}
+  }
+
+  function stopXfyun() {
+    if (!xf) return;
+    const x = xf;
+    xf = null; // 先置空,阻断回调里的重连逻辑
+    x.stopped = true;
+    clearTimeout(x.sessionTimer);
+    if (x.ws) {
+      try {
+        x.ws.onclose = null;
+        if (x.ws.readyState === 1) x.ws.send(JSON.stringify({ data: { status: 2, format: "audio/L16;rate=16000", encoding: "raw", audio: "" } }));
+        x.ws.close();
+      } catch (_) {}
+    }
+    try { x.proc && x.proc.disconnect(); } catch (_) {}
+    try { x.src && x.src.disconnect(); } catch (_) {}
+    try { x.ctx && x.ctx.close(); } catch (_) {}
+    try { x.stream && x.stream.getTracks().forEach(t => t.stop()); } catch (_) {}
+  }
+
+  // ---------- 自动选择引擎 ----------
+  async function pickEngine() {
+    const sel = engineSelect.value;
+    engineAuto = sel === "auto";
+    if (sel === "xfyun") { engine = "xfyun"; return; }
+    if (sel === "webspeech") { engine = "webspeech"; return; }
+    // auto 模式
+    if (!webspeechSupported) { engine = "xfyun"; return; }
+    if (!xfyunConfigured) { engine = "webspeech"; return; }
+    // 地理位置已在页面加载时预取;极端情况(用户秒点播放)最多再等 1.5s
+    if (geoCountry === null) {
+      await Promise.race([prefetchGeo(), new Promise(res => setTimeout(res, 1500))]);
+    }
+    if (geoCountry === null) geoCountry = "";
+    engine = geoCountry === "CN" ? "xfyun" : "webspeech";
+  }
+
+  // ---------- 播放控制 ----------
+  async function startPrompter() {
+    const text = scriptInput.value.trim();
+    if (!text) { scriptInput.focus(); return; }
+
+    mode = modeSelect.value;
+    if (mode === "voice" && !webspeechSupported && !xfyunConfigured) mode = "auto";
+    applyModeUI();
+
+    buildPrompterContent(text);
+    playing = true;
+    paused = false;
+    wsGotResult = false;
+    wsSilentEnds = 0;
+    pauseBtn.textContent = "⏸ 暂停";
+    editorScreen.style.display = "none";
+    prompterScreen.classList.add("active");
+
+    try {
+      const el = document.documentElement;
+      const req = el.requestFullscreen || el.webkitRequestFullscreen || el.mozRequestFullScreen;
+      if (req) await req.call(el);
+    } catch (_) { /* 全屏被拒也继续 */ }
+
+    scrollContainer.scrollTop = 0;
+    targetScroll = 0;
+    updateScrollTarget();
+    scrollContainer.scrollTop = targetScroll;
+
+    lastTs = 0;
+    if (rafId) cancelAnimationFrame(rafId);
+    rafId = requestAnimationFrame(animLoop);
+    if (intervalId) clearInterval(intervalId);
+    intervalId = setInterval(step, 200);
+
+    if (mode === "voice") {
+      await pickEngine();
+      await startEngine();
+    } else {
+      engineTag.textContent = "-";
+      micLabel.textContent = "定速滚动模式";
+    }
+    showControlsTemp();
+  }
+
+  function exitPrompter() {
+    playing = false;
+    stopEngine();
+    if (rafId) { cancelAnimationFrame(rafId); rafId = null; }
+    if (intervalId) { clearInterval(intervalId); intervalId = null; }
+    prompterScreen.classList.remove("active");
+    editorScreen.style.display = "block";
+    if (document.fullscreenElement) document.exitFullscreen().catch(() => {});
+  }
+
+  function togglePause() {
+    paused = !paused;
+    if (!paused) lastTs = 0;
+    pauseBtn.textContent = paused ? "▶ 继续" : "⏸ 暂停";
+    if (mode !== "voice") return;
+    if (engine === "webspeech") {
+      if (paused) {
+        if (recognition) { try { recognition.stop(); } catch (_) {} }
+        micLabel.textContent = "已暂停";
+        setListening(false);
+      } else {
+        if (recognition) { try { recognition.start(); } catch (_) {} }
+        else startWebSpeech();
+      }
+    } else {
+      // 讯飞:暂停 = 停止送音频(onaudioprocess 检查 paused),连接保持
+      micLabel.textContent = paused ? "已暂停" : "正在聆听(讯飞)…";
+      setListening(!paused);
+    }
+  }
+
+  function restart() {
+    cursor = 0;
+    interimProcessed = 0;
+    if (xf) { xf.processed = 0; xf.segs = {}; }
+    allSpans.forEach(s => s.classList.remove("read"));
+    targetScroll = 0;
+    updateScrollTarget();
+    scrollContainer.scrollTop = targetScroll;
+    if (mode === "voice") micLabel.textContent = "正在聆听… 请开始朗读";
+  }
+
+  // ---------- 控制栏 ----------
+  function applyFontSize(px) {
+    px = Math.min(140, Math.max(24, px));
+    fontSlider.value = px;
+    fontVal.textContent = px + "px";
+    document.documentElement.style.setProperty("--prompter-font-size", px + "px");
+    updateScrollTarget();
+  }
+  fontSlider.addEventListener("input", () => applyFontSize(Number(fontSlider.value)));
+  fontMinus.addEventListener("click", () => applyFontSize(Number(fontSlider.value) - 4));
+  fontPlus.addEventListener("click", () => applyFontSize(Number(fontSlider.value) + 4));
+
+  function applyModeUI() {
+    modeBtn.textContent = mode === "voice" ? "🎙 语音跟随" : "⏩ 定速滚动";
+    speedGroup.style.display = mode === "auto" ? "flex" : "none";
+    engineBtn.style.display = mode === "voice" ? "" : "none";
+  }
+
+  modeBtn.addEventListener("click", () => {
+    if (mode === "voice") {
+      mode = "auto";
+      stopEngine();
+      micLabel.textContent = "定速滚动模式";
+      targetScroll = scrollContainer.scrollTop;
+    } else {
+      if (!webspeechSupported && !xfyunConfigured) { micLabel.textContent = "无可用语音识别引擎"; return; }
+      mode = "voice";
+      updateScrollTarget();
+      if (!paused) startEngine();
+    }
+    applyModeUI();
+    lastTs = 0;
+  });
+
+  engineBtn.addEventListener("click", async () => {
+    // 手动切换后关闭自动回退,尊重用户选择
+    const next = engine === "webspeech" ? "xfyun" : "webspeech";
+    if (next === "xfyun" && !xfyunConfigured) { micLabel.textContent = "未配置讯飞引擎"; return; }
+    if (next === "webspeech" && !webspeechSupported) { micLabel.textContent = "浏览器不支持内置识别"; return; }
+    engineAuto = false;
+    stopEngine();
+    engine = next;
+    if (mode === "voice" && !paused) await startEngine();
+    else setEngineUI();
+  });
+
+  mirrorBtn.addEventListener("click", () => {
+    prompterText.classList.toggle("mirrored");
+    mirrorBtn.classList.toggle("active");
+  });
+  pauseBtn.addEventListener("click", togglePause);
+  restartBtn.addEventListener("click", restart);
+  exitBtn.addEventListener("click", exitPrompter);
+  playBtn.addEventListener("click", startPrompter);
+
+  // 控制栏自动隐藏
+  let hideTimer = null;
+  function showControlsTemp() {
+    controls.classList.remove("hidden");
+    clearTimeout(hideTimer);
+    hideTimer = setTimeout(() => controls.classList.add("hidden"), 3500);
+  }
+  prompterScreen.addEventListener("mousemove", showControlsTemp);
+  prompterScreen.addEventListener("touchstart", showControlsTemp, { passive: true });
+  controls.addEventListener("mouseenter", () => clearTimeout(hideTimer));
+  controls.addEventListener("mouseleave", showControlsTemp);
+
+  // ---------- 键盘 & 全屏 ----------
+  document.addEventListener("keydown", (e) => {
+    if (!playing) return;
+    if (e.key === "Escape") {
+      // 两段式:全屏中 Esc 仅退全屏;非全屏再按 Esc 退回编辑页
+      if (!document.fullscreenElement && !document.webkitFullscreenElement) exitPrompter();
+    }
+    else if (e.code === "Space") { e.preventDefault(); togglePause(); }
+    else if (e.key === "ArrowUp") { applyFontSize(Number(fontSlider.value) + 4); }
+    else if (e.key === "ArrowDown") { applyFontSize(Number(fontSlider.value) - 4); }
+  });
+
+  ["fullscreenchange", "webkitfullscreenchange"].forEach(ev =>
+    document.addEventListener(ev, () => { if (playing) { lastTs = 0; updateScrollTarget(); } })
+  );
+
+  window.addEventListener("resize", () => { if (playing) updateScrollTarget(); });
+})();
+</script>
+</body>
+</html>
